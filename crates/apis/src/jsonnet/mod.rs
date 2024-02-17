@@ -29,20 +29,22 @@ fn jsonnet_evaluate_snippet_callback(
     move |_ctx, _this, args| {
         // check the number of arguments
         if args.len() != 2 {
+            eprintln!("Expected 2 arguments, got {}", args.len());
             return Err(anyhow::anyhow!("Expected 2 arguments, got {}", args.len()));
         }
-        println!("Evaluating jsonnet snippet");
+        eprintln!("Evaluating jsonnet snippet");
         let var = args.get(0).unwrap().to_string();
         let code = args.get(1).unwrap().to_string();
         let var_len = var.len() as i32;
         let code_len = code.len() as i32;
         let var_ptr = var.as_ptr();
         let code_ptr = code.as_ptr();
-
+        eprintln!("Calling jsonnet_evaluate");
         unsafe { jsonnet_evaluate(var_ptr, var_len, code_ptr, code_len) }
         let out_len = unsafe { jsonnet_output_len() };
         let mut out_buffer = Vec::with_capacity(out_len as usize);
         let out_ptr = out_buffer.as_mut_ptr();
+        eprintln!("Getting jsonnet_output");
         let out_buffer = unsafe {
             jsonnet_output(out_ptr);
             Vec::from_raw_parts(out_ptr, out_len as usize, out_len as usize)

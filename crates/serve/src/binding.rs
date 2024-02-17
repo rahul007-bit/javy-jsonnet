@@ -28,7 +28,7 @@ pub fn add_exports_to_linker(linker: &mut Linker<WasiCtx>) -> anyhow::Result<()>
         move |mut caller: Caller<'_, WasiCtx>,
               var_ptr: i32,
               var_len: i32,
-              code_ptr: i32,
+              path_ptr: i32,
               code_len: i32| {
             println!("Evaluating jsonnet snippet in cli");
             let output = output_clone.clone();
@@ -37,12 +37,12 @@ pub fn add_exports_to_linker(linker: &mut Linker<WasiCtx>) -> anyhow::Result<()>
                 _ => return Err(Trap::NullReference.into()),
             };
             let var_offset = var_ptr as u32 as usize;
-            let code_offset = code_ptr as u32 as usize;
+            let path_offset = path_ptr as u32 as usize;
             let mut var_buffer = vec![0; var_len as usize];
-            let mut code_buffer = vec![0; code_len as usize];
+            let mut path_buffer = vec![0; code_len as usize];
 
-            let code = match mem.read(&caller, code_offset, &mut code_buffer) {
-                Ok(_) => match std::str::from_utf8(&code_buffer) {
+            let path = match mem.read(&caller, path_offset, &mut path_buffer) {
+                Ok(_) => match std::str::from_utf8(&path_buffer) {
                     Ok(s) => s,
                     Err(_) => return Err(Trap::BadSignature.into()),
                 },
@@ -69,6 +69,7 @@ pub fn add_exports_to_linker(linker: &mut Linker<WasiCtx>) -> anyhow::Result<()>
                 trace_format: Box::new(CompactFormat::default()),
                 tla_args: GcHashMap::default(),
             };
+            let code = std::fs::read_to_string(path).unwrap();
             let out = match vm
                 .state
                 .evaluate_snippet("snippet", code)

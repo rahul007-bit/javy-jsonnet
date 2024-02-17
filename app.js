@@ -3,6 +3,13 @@ addEventListener("fetch", (event) => {
 });
 
 async function handleRequest(request) {
-  __jsonnet_evaluate_snippet();
-  return new Response("Hello world", { status: 200, statusText: "OK" });
+  let vars = "";
+  let code = "./test.jsonnet";
+
+  let result = __jsonnet_evaluate_snippet(vars, code);
+  return new Response(
+    result,
+
+    { status: 200, statusText: "OK" }
+  );
 }
