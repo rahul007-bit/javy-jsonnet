@@ -61,9 +61,16 @@ mod stream_io;
 #[cfg(feature = "text_encoding")]
 mod text_encoding;
 
-// mod binding;
-mod http;
+pub mod http;
 mod jsonnet;
+
+#[link(wasm_import_module = "arakoo")]
+extern "C" {
+    fn jsonnet_evaluate(var_ptr: *const u8, var_len: i32, code_ptr: *const u8, code_len: i32);
+    fn jsonnet_output_len() -> i32;
+    fn jsonnet_output(ptr: *mut u8);
+
+}
 
 pub(crate) trait JSApiSet {
     fn register(&self, runtime: &Runtime, config: &APIConfig) -> Result<()>;

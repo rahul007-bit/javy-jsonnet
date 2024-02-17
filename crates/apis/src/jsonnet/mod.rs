@@ -1,23 +1,6 @@
-use javy::quickjs::JSValue;
-use jrsonnet_evaluator::{
-    apply_tla,
-    function::TlaArg,
-    gc::GcHashMap,
-    manifest::{JsonFormat, ManifestFormat},
-    tb,
-    trace::{CompactFormat, PathResolver, TraceFormat},
-    FileImportResolver, State,
-};
-use jrsonnet_parser::IStr;
+use javy::quickjs::{JSContextRef, JSValue, JSValueRef};
 
-use crate::JSApiSet;
-
-pub struct VM {
-    state: State,
-    manifest_format: Box<dyn ManifestFormat>,
-    trace_format: Box<dyn TraceFormat>,
-    tla_args: GcHashMap<IStr, TlaArg>,
-}
+use crate::{jsonnet_evaluate, jsonnet_output, jsonnet_output_len, JSApiSet};
 
 static JSONNET: &str = include_str!("./index.js");
 
@@ -27,6 +10,7 @@ impl JSApiSet for Jsonnet {
     fn register(&self, runtime: &javy::Runtime, _config: &crate::APIConfig) -> anyhow::Result<()> {
         let context = runtime.context();
         let global = context.global_object()?;
+        eprintln!("Registering jsonnet");
         global.set_property(
             "__jsonnet_evaluate_snippet",
             context.wrap_callback(jsonnet_evaluate_snippet_callback())?,
@@ -40,77 +24,30 @@ impl JSApiSet for Jsonnet {
     }
 }
 
-// fn jsonnet_make() -> VM {
-//     let state = State::default();
-//     state.settings_mut().import_resolver = tb!(FileImportResolver::default());
-//     state.settings_mut().context_initializer = tb!(jrsonnet_stdlib::ContextInitializer::new(
-//         state.clone(),
-//         PathResolver::new_cwd_fallback(),
-//     ));
-
-//     VM {
-//         state,
-//         manifest_format: Box::new(JsonFormat::default()),
-//         trace_format: Box::new(CompactFormat::default()),
-//         tla_args: GcHashMap::default(),
-//     }
-// }
-
-// fn jsonnet_destroy(vm: *mut VM) {
-//     unsafe {
-//         let dloc_vm = Box::from_raw(vm);
-//         drop(dloc_vm);
-//     }
-// }
-
-fn jsonnet_evaluate_snippet(filename: &str, snippet: &str) -> String {
-    let vm = {
-        let state = State::default();
-        state.settings_mut().import_resolver = tb!(FileImportResolver::default());
-        state.settings_mut().context_initializer = tb!(jrsonnet_stdlib::ContextInitializer::new(
-            state.clone(),
-            PathResolver::new_cwd_fallback(),
-        ));
-
-        VM {
-            state,
-            manifest_format: Box::new(JsonFormat::default()),
-            trace_format: Box::new(CompactFormat::default()),
-            tla_args: GcHashMap::default(),
+fn jsonnet_evaluate_snippet_callback(
+) -> impl FnMut(&JSContextRef, JSValueRef, &[JSValueRef]) -> anyhow::Result<JSValue> {
+    move |_ctx, _this, args| {
+        // check the number of arguments
+        if args.len() != 2 {
+            return Err(anyhow::anyhow!("Expected 2 arguments, got {}", args.len()));
         }
-    };
-    match vm
-        .state
-        .evaluate_snippet(filename, snippet)
-        .and_then(|val| apply_tla(vm.state.clone(), &vm.tla_args, val))
-        .and_then(|val| val.manifest(&vm.manifest_format))
-    {
-        Ok(v) => v,
-        Err(e) => {
-            let mut out = String::new();
-            vm.trace_format.write_trace(&mut out, &e).unwrap();
-            out
-        }
-    }
-}
+        println!("Evaluating jsonnet snippet");
+        let var = args.get(0).unwrap().to_string();
+        let code = args.get(1).unwrap().to_string();
+        let var_len = var.len() as i32;
+        let code_len = code.len() as i32;
+        let var_ptr = var.as_ptr();
+        let code_ptr = code.as_ptr();
 
-fn jsonnet_evaluate_snippet_callback() -> impl FnMut(
-    &javy::quickjs::JSContextRef,
-    javy::quickjs::JSValueRef,
-    &[javy::quickjs::JSValueRef],
-) -> anyhow::Result<javy::quickjs::JSValue> {
-    move |_ctx: &javy::quickjs::JSContextRef,
-          _this: javy::quickjs::JSValueRef,
-          args: &[javy::quickjs::JSValueRef]| {
-        if args.len() != 3 {
-            return Err(anyhow::anyhow!(
-                "Expecting 2 arguments, received {}",
-                args.len()
-            ));
-        }
-        let filename = args[1];
-        let snippet = args[2];
-        let result = jsonnet_evaluate_snippet(filename.as_str()?, snippet.as_str()?);
-        Ok(JSValue::from(result))
+        unsafe { jsonnet_evaluate(var_ptr, var_len, code_ptr, code_len) }
+        let out_len = unsafe { jsonnet_output_len() };
+        let mut out_buffer = Vec::with_capacity(out_len as usize);
+        let out_ptr = out_buffer.as_mut_ptr();
+        let out_buffer = unsafe {
+            jsonnet_output(out_ptr);
+            Vec::from_raw_parts(out_ptr, out_len as usize, out_len as usize)
+        };
+        let jsonnet_output = String::from_utf8(out_buffer).unwrap();
+        Ok(jsonnet_output.into())
     }
 }

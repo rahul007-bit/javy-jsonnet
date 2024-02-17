@@ -1,6 +1,7 @@
 use std::process;
 
 use anyhow::{bail, Error, Result};
+use apis::http::types::Response;
 use javy::{json, quickjs::JSContextRef, Runtime};
 
 pub fn run_bytecode(runtime: &Runtime, bytecode: &[u8]) {
@@ -17,21 +18,18 @@ pub fn invoke_entrypoint(
     runtime: &Runtime,
     bytecode: &[u8],
     input: String,
-) -> anyhow::Result<Vec<u8>> {
+) -> anyhow::Result<Response> {
     let context = runtime.context();
-    
-    eprintln!("Running bytecode: {} bytes", bytecode.len());
+    eprintln!("context.eval_binary");
     match context.eval_binary(bytecode) {
-        Ok(_) => {
-            eprintln!("Running bytecode");
-        }
+        Ok(_) => {}
         Err(e) => {
             eprintln!("error");
             eprintln!("Error while running bytecode: {e}");
-            process::abort();
+            return Err(e);
         }
     }
-    eprintln!("Getting entrypoint");
+    eprintln!("context.global_object()");
     let global = context.global_object().unwrap();
     let entry_point = global.get_property("entrypoint").unwrap();
 
@@ -41,14 +39,14 @@ pub fn invoke_entrypoint(
         eprintln!("Error when transcoding input: {e}");
         process::abort();
     });
-    eprintln!("calling entrypoint");
+    eprintln!("entry_point.call");
     entry_point
         .call(&global, &[input_value])
         .and_then(|_| process_event_loop(context))
         .unwrap_or_else(handle_error);
 
     let global = context.global_object().unwrap();
-    eprintln!("getting result");
+
     let error = global.get_property("error").unwrap();
     let output = global.get_property("result").unwrap();
 
@@ -58,7 +56,8 @@ pub fn invoke_entrypoint(
         process::abort();
     }
     let output = json::transcode_output(output).unwrap();
-    Ok(output)
+    let response: Response = serde_json::from_slice(&output).unwrap();
+    Ok(response)
 }
 
 pub fn invoke_function(runtime: &Runtime, fn_module: &str, fn_name: &str) {
